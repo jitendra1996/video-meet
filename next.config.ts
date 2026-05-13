@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  transpilePackages: ["@100mslive/react-sdk", "@100mslive/hms-video-store"],
 };
 
 export default nextConfig;

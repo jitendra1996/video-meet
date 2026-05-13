@@ -11,6 +11,8 @@ export interface Participant {
     id: string;
     socketId: string;
     displayName: string;
+    /** True while this client reports they are presenting their screen. */
+    screenSharing: boolean;
     transports: {
         send?: WebRtcTransport;
         recv?: WebRtcTransport;
@@ -24,6 +26,7 @@ export interface RoomState {
     participants: Array<{
         id: string;
         displayName: string;
+        screenSharing: boolean;
         producers: Array<{
             id: string;
             kind: "audio" | "video";

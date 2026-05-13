@@ -25,6 +25,7 @@ class Room {
             id: participantId,
             socketId,
             displayName,
+            screenSharing: false,
             transports: {},
             producers: new Map(),
             consumers: new Map(),
@@ -80,6 +81,10 @@ class Room {
         if (!participant) {
             throw new Error(`Participant ${participantId} not found`);
         }
+        if (participant.transports.send) {
+            participant.transports.send.close();
+            participant.transports.send = undefined;
+        }
         const transport = await this.router.createWebRtcTransport(config_js_1.config.webRtcTransport);
         participant.transports.send = transport;
         return transport;
@@ -91,6 +96,10 @@ class Room {
         const participant = this.participants.get(participantId);
         if (!participant) {
             throw new Error(`Participant ${participantId} not found`);
+        }
+        if (participant.transports.recv) {
+            participant.transports.recv.close();
+            participant.transports.recv = undefined;
         }
         const transport = await this.router.createWebRtcTransport(config_js_1.config.webRtcTransport);
         participant.transports.recv = transport;
@@ -163,6 +172,7 @@ class Room {
             participants: this.getAllParticipants().map((p) => ({
                 id: p.id,
                 displayName: p.displayName,
+                screenSharing: p.screenSharing,
                 producers: Array.from(p.producers.values()).map((pr) => ({
                     id: pr.id,
                     kind: pr.kind,

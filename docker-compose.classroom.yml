@@ -1,0 +1,24 @@
+# Live class stack: MongoDB + Redis (optional) + classroom-api
+# Usage:
+#   docker compose -f docker-compose.classroom.yml up -d
+#
+# Then set MONGODB_URI=mongodb://localhost:27017/classroom and (optional) REDIS_URL
+# in classroom-api/.env and start the API on the host, or add a service image for classroom-api.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - classroom_mongo:/data/db
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  classroom_mongo:

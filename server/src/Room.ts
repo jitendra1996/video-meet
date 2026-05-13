@@ -21,6 +21,8 @@ export interface Participant {
   id: string;
   socketId: string;
   displayName: string;
+  /** True while this client reports they are presenting their screen. */
+  screenSharing: boolean;
   transports: {
     send?: WebRtcTransport;
     recv?: WebRtcTransport;
@@ -35,6 +37,7 @@ export interface RoomState {
   participants: Array<{
     id: string;
     displayName: string;
+    screenSharing: boolean;
     producers: Array<{ id: string; kind: "audio" | "video" }>;
   }>;
 }
@@ -61,6 +64,7 @@ export class Room {
       id: participantId,
       socketId,
       displayName,
+      screenSharing: false,
       transports: {},
       producers: new Map(),
       consumers: new Map(),
@@ -126,6 +130,11 @@ export class Room {
       throw new Error(`Participant ${participantId} not found`);
     }
 
+    if (participant.transports.send) {
+      participant.transports.send.close();
+      participant.transports.send = undefined;
+    }
+
     const transport = await this.router.createWebRtcTransport(
       config.webRtcTransport
     );
@@ -141,6 +150,11 @@ export class Room {
     const participant = this.participants.get(participantId);
     if (!participant) {
       throw new Error(`Participant ${participantId} not found`);
+    }
+
+    if (participant.transports.recv) {
+      participant.transports.recv.close();
+      participant.transports.recv = undefined;
     }
 
     const transport = await this.router.createWebRtcTransport(
@@ -239,6 +253,7 @@ export class Room {
       participants: this.getAllParticipants().map((p) => ({
         id: p.id,
         displayName: p.displayName,
+        screenSharing: p.screenSharing,
         producers: Array.from(p.producers.values()).map((pr) => ({
           id: pr.id,
           kind: pr.kind,

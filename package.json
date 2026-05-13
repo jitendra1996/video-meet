@@ -6,6 +6,9 @@
     "dev": "next dev",
     "dev:server": "cd server && npm run dev",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
+    "dev:classroom": "cd classroom-api && npm run dev",
+    "dev:full": "concurrently \"npm run dev\" \"npm run dev:server\" \"npm run dev:classroom\"",
+    "build:classroom": "cd classroom-api && npm run build",
     "build": "next build",
     "build:server": "cd server && npm run build",
     "start": "next start",
@@ -13,18 +16,21 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@100mslive/react-sdk": "^0.12.0",
+    "@reduxjs/toolkit": "^2.11.2",
     "mediasoup-client": "^3.6.157",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-redux": "^9.2.0",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "concurrently": "^9.1.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",

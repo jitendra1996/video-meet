@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { StoreProvider } from "@/components/providers/StoreProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Video Meet - WebRTC Video Conferencing",
-  description: "Google Meet / Zoom-like video conferencing with WebRTC, MediaSoup SFU, and Socket.io. Supports 1000+ concurrent users.",
+  title: "Video App — Live classes & meetings",
+  description:
+    "Live online classes with 100ms, chat, attendance, and recordings; legacy MediaSoup rooms still available.",
 };
 
 export default function RootLayout({
@@ -27,7 +29,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <StoreProvider>{children}</StoreProvider>
       </body>
     </html>
   );

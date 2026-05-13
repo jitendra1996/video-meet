@@ -14,7 +14,7 @@
  *   LISTEN_IP         - Bind address (default: 0.0.0.0)
  *   ANNOUNCED_IP      - Public IP for ICE (required for production/NAT)
  *   WEBRTC_PORT_MIN   - WebRTC port range start (default: 40000)
- *   WEBRTC_PORT_MAX   - WebRTC port range end (default: 40100)
+ *   WEBRTC_PORT_MAX   - WebRTC port range end (default: 49999; keep range wide)
  */
 
 import { createServer } from "node:http";
@@ -27,6 +27,17 @@ import { RoomManager } from "./RoomManager.js";
 import { registerSignalingHandlers } from "./signaling.js";
 
 async function main(): Promise<void> {
+  const { min: rtcMin, max: rtcMax } = config.webRtcPortRange;
+  const rtcSpan = rtcMax - rtcMin + 1;
+  console.log(
+    `[SFU] WebRTC ports (UDP+TCP): ${rtcMin}-${rtcMax} (${rtcSpan} ports) — set WEBRTC_PORT_MIN/WEBRTC_PORT_MAX in PM2 if wrong`
+  );
+  if (rtcSpan < 1000) {
+    console.error(
+      `[SFU] ERROR: Port range is only ${rtcSpan}. "no more available ports" will happen after a few users. Set e.g. WEBRTC_PORT_MAX=49999, open that range in the firewall, rebuild, pm2 restart.`
+    );
+  }
+
   // Initialize MediaSoup worker pool
   const workerPool = new WorkerPool();
   await workerPool.initialize();
@@ -40,9 +51,11 @@ async function main(): Promise<void> {
   app.use(express.json());
 
   app.get("/health", (_req, res) => {
+    const { min, max } = config.webRtcPortRange;
     res.json({
       status: "ok",
       workers: config.numWorkers,
+      webrtcPorts: { min, max, count: max - min + 1 },
       timestamp: new Date().toISOString(),
     });
   });
@@ -78,7 +91,7 @@ async function main(): Promise<void> {
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
 ║  Video Conferencing SFU Server                           ║
-║  Port: ${config.httpPort} | Workers: ${config.numWorkers}  ║
+║  HTTP: ${config.httpPort} | Workers: ${config.numWorkers} | RTC: ${config.webRtcPortRange.min}-${config.webRtcPortRange.max} ║
 ╚══════════════════════════════════════════════════════════╝
     `);
   });

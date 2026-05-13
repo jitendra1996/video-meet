@@ -17,7 +17,9 @@ export declare const CLIENT_EVENTS: {
     readonly LEAVE_ROOM: "leave-room";
     readonly GET_ROOM_STATE: "get-room-state";
     readonly CHAT_MESSAGE: "chat-message";
+    readonly PRIVATE_CHAT: "private-chat";
     readonly REACTION: "reaction";
+    readonly SCREEN_SHARE: "screen-share";
 };
 /** Server-to-client event names */
 export declare const SERVER_EVENTS: {
@@ -31,7 +33,9 @@ export declare const SERVER_EVENTS: {
     readonly PRODUCER_CLOSED: "producer-closed";
     readonly CONSUMER_CREATED: "consumer-created";
     readonly CHAT_MESSAGE: "chat-message";
+    readonly PRIVATE_CHAT: "private-chat";
     readonly REACTION: "reaction";
+    readonly SCREEN_SHARE: "screen-share";
     readonly ERROR: "error";
 };
 /**

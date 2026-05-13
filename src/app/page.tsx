@@ -164,7 +164,11 @@ export default function Home() {
         </form>
 
         <p className="text-center text-slate-500 text-sm mt-6">
-          Powered by WebRTC • MediaSoup SFU • Supports 1000+ users
+          <a href="/login" className="text-emerald-400 hover:underline">
+            Live classes (100ms)
+          </a>
+          <span className="mx-2">·</span>
+          Powered by WebRTC • MediaSoup SFU
         </p>
       </div>
     </div>

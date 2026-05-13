@@ -68,12 +68,23 @@ export const config = {
     16
   ),
 
-  /** WebRTC port range for Worker - must match webRtcTransport listenInfos */
+  /**
+   * WebRTC port range — shared by all MediaSoup workers on this host (OS binds
+   * unique ports per process). Default was 40000–40100 (~101 ports); each
+   * WebRtcTransport uses ports from this range (UDP + TCP), so tiny ranges
+   * cause "no more available ports" after a handful of users.
+   *
+   * Rule of thumb: ~2 port tuples per participant (send + recv transports).
+   * For ~500 concurrent transports, reserve at least 2000+ ports; for large
+   * rooms use 40000–49999 (10k) or wider and open the same range in the firewall.
+   */
   get webRtcPortRange() {
-    return {
-      min: parseInt(process.env.WEBRTC_PORT_MIN || "40000", 10),
-      max: parseInt(process.env.WEBRTC_PORT_MAX || "40100", 10),
-    };
+    const min = parseInt(process.env.WEBRTC_PORT_MIN || "40000", 10);
+    const max = parseInt(process.env.WEBRTC_PORT_MAX || "49999", 10);
+    if (max <= min) {
+      throw new Error(`Invalid WEBRTC port range: min=${min} max=${max}`);
+    }
+    return { min, max };
   },
 
   /** WebRTC transport options - listenInfos format for MediaSoup v3 */

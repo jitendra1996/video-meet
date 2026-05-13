@@ -8,7 +8,7 @@
  */
 
 import { useRef, useState, useCallback } from "react";
-import { createSocket } from "@/lib/socket";
+import { createSocket, SOCKET_URL } from "@/lib/socket";
 import {
   MediaSoupRoomClient,
   type RemoteParticipant,
@@ -16,6 +16,15 @@ import {
 
 export interface ChatMessage {
   participantId: string;
+  displayName: string;
+  message: string;
+  timestamp: number;
+}
+
+/** Direct message visible only to sender and recipient. */
+export interface PrivateChatMessage {
+  fromParticipantId: string;
+  toParticipantId: string;
   displayName: string;
   message: string;
   timestamp: number;
@@ -35,6 +44,7 @@ export interface UseVideoRoomOptions {
   audioDeviceId?: string;
   onError?: (error: Error) => void;
   onChatMessageReceived?: (msg: ChatMessage) => void;
+  onPrivateChatReceived?: (msg: PrivateChatMessage) => void;
 }
 
 export interface UseVideoRoomReturn {
@@ -53,8 +63,10 @@ export interface UseVideoRoomReturn {
   isAudioMuted: boolean;
   isScreenSharing: boolean;
   chatMessages: ChatMessage[];
+  privateChatMessages: PrivateChatMessage[];
   lastReaction: { reaction: string; displayName: string } | null;
   sendChatMessage: (message: string) => void;
+  sendPrivateChatMessage: (toParticipantId: string, message: string) => void;
   sendReaction: (reaction: string) => void;
   copyMeetingLink: () => Promise<void>;
   devices: { cameras: MediaDeviceInfo[]; mics: MediaDeviceInfo[] };
@@ -69,6 +81,7 @@ export function useVideoRoom({
   audioDeviceId,
   onError,
   onChatMessageReceived,
+  onPrivateChatReceived,
 }: UseVideoRoomOptions): UseVideoRoomReturn {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteParticipants, setRemoteParticipants] = useState<
@@ -81,6 +94,9 @@ export function useVideoRoom({
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [privateChatMessages, setPrivateChatMessages] = useState<
+    PrivateChatMessage[]
+  >([]);
   const [lastReaction, setLastReaction] = useState<{
     reaction: string;
     displayName: string;
@@ -99,6 +115,8 @@ export function useVideoRoom({
   const videoDeviceIdRef = useRef<string>("");
   const audioDeviceIdRef = useRef<string>("");
   const isScreenSharingRef = useRef(false);
+  /** True if a camera video producer existed when screen share started (restore via replaceTrack, not produce). */
+  const screenShareHadVideoProducerRef = useRef(false);
 
   const updateRemoteParticipants = useCallback(() => {
     const client = clientRef.current;
@@ -119,7 +137,7 @@ export function useVideoRoom({
         const timeout = setTimeout(() => {
           reject(
             new Error(
-              "Connection timeout. Is the server running on port 3001? Run: npm run dev:server"
+              `Connection timeout (${SOCKET_URL}). In production: rebuild Next with NEXT_PUBLIC_SOCKET_URL set, use a single SFU PM2 process (not cluster), verify nginx WebSocket proxy and CORS_ORIGIN on the SFU.`
             )
           );
         }, 15000);
@@ -133,7 +151,7 @@ export function useVideoRoom({
           reject(
             new Error(
               err.message ||
-                "Cannot connect to server. Ensure both frontend (npm run dev) and server (npm run dev:server) are running."
+                `Cannot connect to signaling server at ${SOCKET_URL}. Production: set NEXT_PUBLIC_SOCKET_URL before npm run build; SFU must allow your site in CORS_ORIGIN; nginx needs map $http_upgrade $connection_upgrade and Upgrade/Connection headers for /socket.io.`
             )
           );
         });
@@ -154,6 +172,67 @@ export function useVideoRoom({
 
       const joinResponse = await client.join();
       setParticipantId(joinResponse.participantId);
+
+      // Register signaling handlers before getUserMedia/sendMedia so we never miss
+      // NEW_PARTICIPANT / PRODUCER_CREATED while the local pipeline is still starting.
+      client.onNewParticipant((data: {
+        id?: string;
+        displayName?: string;
+        producers?: Array<{ id: string; kind: "audio" | "video" }>;
+        screenSharing?: boolean;
+      }) => {
+        const id = data?.id;
+        if (!id) return;
+        client.addRemoteParticipant(
+          id,
+          data.displayName ?? "Unknown",
+          data.producers ?? [],
+          data.screenSharing ?? false
+        );
+        updateRemoteParticipants();
+      });
+
+      client.onProducerCreated(({ participantId, producer }) => {
+        client.handleNewProducer(
+          participantId,
+          producer.id,
+          producer.kind,
+          updateRemoteParticipants
+        );
+      });
+
+      client.onParticipantLeft(({ participantId }) => {
+        client.removeRemoteParticipant(participantId);
+        updateRemoteParticipants();
+      });
+
+      client.onProducerClosed(({ participantId, producerId }) => {
+        client.handleProducerClosed(
+          participantId,
+          producerId,
+          updateRemoteParticipants
+        );
+      });
+
+      client.onChatMessage((msg) => {
+        setChatMessages((prev) => [...prev, msg]);
+        onChatMessageReceived?.(msg);
+      });
+
+      client.onPrivateChatMessage((msg) => {
+        setPrivateChatMessages((prev) => [...prev, msg]);
+        onPrivateChatReceived?.(msg);
+      });
+
+      client.onReaction((data) => {
+        setLastReaction({ reaction: data.reaction, displayName: data.displayName });
+        setTimeout(() => setLastReaction(null), 2000);
+      });
+
+      client.onScreenShareState(({ participantId, sharing }) => {
+        client.setRemoteScreenShare(participantId, sharing);
+        updateRemoteParticipants();
+      });
 
       const deviceId = videoDeviceId || videoDeviceIdRef.current;
       videoDeviceIdRef.current = deviceId;
@@ -196,49 +275,6 @@ export function useVideoRoom({
       await client.sendMedia(stream);
       setIsInRoom(true);
 
-      client.onNewParticipant((data: { id?: string; displayName?: string; producers?: Array<{ id: string; kind: "audio" | "video" }> }) => {
-        const id = data?.id;
-        if (!id) return;
-        client.addRemoteParticipant(
-          id,
-          data.displayName ?? "Unknown",
-          data.producers ?? []
-        );
-        updateRemoteParticipants();
-      });
-
-      client.onProducerCreated(({ participantId, producer }) => {
-        client.handleNewProducer(
-          participantId,
-          producer.id,
-          producer.kind,
-          updateRemoteParticipants
-        );
-      });
-
-      client.onParticipantLeft(({ participantId }) => {
-        client.removeRemoteParticipant(participantId);
-        updateRemoteParticipants();
-      });
-
-      client.onProducerClosed(({ participantId, producerId }) => {
-        client.handleProducerClosed(
-          participantId,
-          producerId,
-          updateRemoteParticipants
-        );
-      });
-
-      client.onChatMessage((msg) => {
-        setChatMessages((prev) => [...prev, msg]);
-        onChatMessageReceived?.(msg);
-      });
-
-      client.onReaction((data) => {
-        setLastReaction({ reaction: data.reaction, displayName: data.displayName });
-        setTimeout(() => setLastReaction(null), 2000);
-      });
-
       updateRemoteParticipants();
       setTimeout(updateRemoteParticipants, 300);
       setTimeout(updateRemoteParticipants, 1000);
@@ -249,7 +285,15 @@ export function useVideoRoom({
     } finally {
       isJoiningRef.current = false;
     }
-  }, [roomId, displayName, isInRoom, onError, onChatMessageReceived, updateRemoteParticipants]);
+  }, [
+    roomId,
+    displayName,
+    isInRoom,
+    onError,
+    onChatMessageReceived,
+    onPrivateChatReceived,
+    updateRemoteParticipants,
+  ]);
 
   const leaveRoom = useCallback(() => {
     screenStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -263,6 +307,7 @@ export function useVideoRoom({
     setIsInRoom(false);
     setIsScreenSharing(false);
     setChatMessages([]);
+    setPrivateChatMessages([]);
     socketRef.current?.disconnect();
     socketRef.current = null;
     clientRef.current = null;
@@ -362,20 +407,31 @@ export function useVideoRoom({
   const stopScreenShare = useCallback(async () => {
     const client = clientRef.current;
     if (!client || !cameraStreamRef.current) return;
-    const videoProducerId = client.getVideoProducerId();
-    if (videoProducerId) {
-      await client.closeProducer(videoProducerId);
-    }
-    screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    const screenStreamToStop = screenStreamRef.current;
     screenStreamRef.current = null;
+
     const cameraStream = cameraStreamRef.current;
-    const videoTrack = cameraStream.getVideoTracks()[0];
-    if (videoTrack) {
-      await client.sendMedia(cameraStream);
+    if (screenShareHadVideoProducerRef.current) {
+      const camVideo = cameraStream.getVideoTracks()[0];
+      if (camVideo && camVideo.readyState === "live") {
+        await client.replaceVideoTrack(camVideo);
+      } else {
+        const vid = client.getVideoProducerId();
+        if (vid) await client.closeProducer(vid);
+        setIsVideoMuted(true);
+      }
+    } else {
+      const vid = client.getVideoProducerId();
+      if (vid) await client.closeProducer(vid);
     }
+
+    screenStreamToStop?.getTracks().forEach((t) => t.stop());
+
     setLocalStream(cameraStream);
     setIsScreenSharing(false);
     isScreenSharingRef.current = false;
+    screenShareHadVideoProducerRef.current = false;
+    client.sendScreenShareState(false);
   }, []);
 
   const toggleScreenShare = useCallback(async () => {
@@ -393,33 +449,48 @@ export function useVideoRoom({
         audio: false,
       });
       screenStreamRef.current = screenStream;
-      isScreenSharingRef.current = true;
-      setIsScreenSharing(true);
 
-      screenStream.getVideoTracks()[0].onended = () => {
+      const screenTrack = screenStream.getVideoTracks()[0];
+      screenTrack.onended = () => {
         if (isScreenSharingRef.current) stopScreenShare();
       };
 
-      const videoProducerId = client.getVideoProducerId();
-      if (videoProducerId) {
-        await client.closeProducer(videoProducerId);
+      screenShareHadVideoProducerRef.current = !!client.getVideoProducerId();
+      if (screenShareHadVideoProducerRef.current) {
+        await client.replaceVideoTrack(screenTrack);
+      } else {
+        await client.produceTrack(screenTrack);
       }
 
       const audioTrack = cameraStreamRef.current!.getAudioTracks()[0];
       const mixedStream = new MediaStream([
-        screenStream.getVideoTracks()[0],
+        screenTrack,
         ...(audioTrack ? [audioTrack] : []),
       ]);
-      await client.sendMedia(mixedStream);
       setLocalStream(mixedStream);
+      isScreenSharingRef.current = true;
+      setIsScreenSharing(true);
+      client.sendScreenShareState(true);
     } catch (err) {
       console.error("Screen share failed:", err);
+      screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+      isScreenSharingRef.current = false;
+      setIsScreenSharing(false);
     }
   }, [stopScreenShare]);
 
   const sendChatMessage = useCallback((message: string) => {
     clientRef.current?.sendChatMessage(message);
   }, []);
+
+  const sendPrivateChatMessage = useCallback(
+    (toParticipantId: string, message: string) => {
+      if (!toParticipantId.trim() || !message.trim()) return;
+      clientRef.current?.sendPrivateChatMessage(toParticipantId, message);
+    },
+    []
+  );
 
   const sendReaction = useCallback((reaction: string) => {
     clientRef.current?.sendReaction(reaction);
@@ -454,8 +525,10 @@ export function useVideoRoom({
     isAudioMuted,
     isScreenSharing,
     chatMessages,
+    privateChatMessages,
     lastReaction,
     sendChatMessage,
+    sendPrivateChatMessage,
     sendReaction,
     copyMeetingLink,
     devices,

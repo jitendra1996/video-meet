@@ -25,7 +25,9 @@ export const CLIENT_EVENTS = {
   LEAVE_ROOM: "leave-room",
   GET_ROOM_STATE: "get-room-state",
   CHAT_MESSAGE: "chat-message",
+  PRIVATE_CHAT: "private-chat",
   REACTION: "reaction",
+  SCREEN_SHARE: "screen-share",
 } as const;
 
 /** Server-to-client event names */
@@ -40,7 +42,9 @@ export const SERVER_EVENTS = {
   PRODUCER_CLOSED: "producer-closed",
   CONSUMER_CREATED: "consumer-created",
   CHAT_MESSAGE: "chat-message",
+  PRIVATE_CHAT: "private-chat",
   REACTION: "reaction",
+  SCREEN_SHARE: "screen-share",
   ERROR: "error",
 } as const;
 
@@ -147,6 +151,7 @@ export function registerSignalingHandlers(
             id: participantId,
             displayName,
             producers: [],
+            screenSharing: false,
           });
 
           callback?.({ participantId, rtpCapabilities, roomState });
@@ -326,6 +331,54 @@ export function registerSignalingHandlers(
     );
 
     /**
+     * Private (1:1) chat — delivered only to sender and recipient sockets.
+     */
+    socket.on(
+      CLIENT_EVENTS.PRIVATE_CHAT,
+      (payload: {
+        roomId: string;
+        fromParticipantId: string;
+        fromDisplayName: string;
+        toParticipantId: string;
+        message: string;
+      }) => {
+        const {
+          roomId,
+          fromParticipantId,
+          fromDisplayName,
+          toParticipantId,
+          message,
+        } = payload;
+        if (
+          !roomId ||
+          !fromParticipantId ||
+          !toParticipantId ||
+          !message?.trim()
+        ) {
+          return;
+        }
+        if (socket.data.participantId !== fromParticipantId) return;
+        if (fromParticipantId === toParticipantId) return;
+
+        const room = roomManager.getRoom(roomId);
+        if (!room) return;
+        const from = room.getParticipant(fromParticipantId);
+        const to = room.getParticipant(toParticipantId);
+        if (!from || !to) return;
+
+        const data = {
+          fromParticipantId,
+          toParticipantId,
+          displayName: fromDisplayName,
+          message: message.trim(),
+          timestamp: Date.now(),
+        };
+        io.to(to.socketId).emit(SERVER_EVENTS.PRIVATE_CHAT, data);
+        socket.emit(SERVER_EVENTS.PRIVATE_CHAT, data);
+      }
+    );
+
+    /**
      * Reaction - broadcast to room (hand raise, emoji, etc.).
      */
     socket.on(
@@ -342,6 +395,33 @@ export function registerSignalingHandlers(
           displayName,
           reaction,
           timestamp: Date.now(),
+        });
+      }
+    );
+
+    /**
+     * Screen share presentation state — lets all clients enlarge the shared display.
+     */
+    socket.on(
+      CLIENT_EVENTS.SCREEN_SHARE,
+      (payload: {
+        roomId: string;
+        participantId: string;
+        sharing: boolean;
+      }) => {
+        const { roomId, participantId, sharing } = payload;
+        if (!roomId || !participantId || typeof sharing !== "boolean") return;
+        if (socket.data.participantId !== participantId) return;
+
+        const room = roomManager.getRoom(roomId);
+        const participant = room?.getParticipant(participantId);
+        if (participant) {
+          participant.screenSharing = sharing;
+        }
+
+        socket.to(roomId).emit(SERVER_EVENTS.SCREEN_SHARE, {
+          participantId,
+          sharing,
         });
       }
     );

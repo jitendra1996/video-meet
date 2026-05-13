@@ -23,7 +23,16 @@ export declare const config: {
     wsPath: string;
     /** Number of MediaSoup workers - use all CPU cores for max throughput */
     numWorkers: number;
-    /** WebRTC port range for Worker - must match webRtcTransport listenInfos */
+    /**
+     * WebRTC port range — shared by all MediaSoup workers on this host (OS binds
+     * unique ports per process). Default was 40000–40100 (~101 ports); each
+     * WebRtcTransport uses ports from this range (UDP + TCP), so tiny ranges
+     * cause "no more available ports" after a handful of users.
+     *
+     * Rule of thumb: ~2 port tuples per participant (send + recv transports).
+     * For ~500 concurrent transports, reserve at least 2000+ ports; for large
+     * rooms use 40000–49999 (10k) or wider and open the same range in the firewall.
+     */
     readonly webRtcPortRange: {
         min: number;
         max: number;
